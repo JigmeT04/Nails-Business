@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import db from "@/lib/db";
+import db from "@/lib/db"; // Import db directly, no promise
 import { hashStr } from "@/lib/helpers";
 
 export async function POST(req) {
@@ -9,7 +9,7 @@ export async function POST(req) {
     const existingUser = await db.User.findOne({ where: { email } });
     if (existingUser) {
       return NextResponse.json(
-        { message: "This email already exists.", sys_message: "email_exists" },
+        { message: "This email already exists." },
         { status: 400 }
       );
     }

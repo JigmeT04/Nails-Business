@@ -37,3 +37,10 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+This project uses sequelize, bcryptjs, jsonwebtoken, validator, and dotenv. 
+npm install sequelize pg dotenv bcryptjs jsonwebtoken validator
+
+The sequelize library needs both the main pg driver and the pg-hstore package to handle all of PostgreSQL's data types correctly.
+npm install pg-hstore
+npm install pg
