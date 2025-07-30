@@ -1,3 +1,4 @@
+import { AuthProvider } from "@/lib/AuthContext";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -20,11 +21,13 @@ export default function RootLayout({
     <html lang="en">
       {/* These CSS classes help keep the footer at the bottom of the page */}
       <body className={`${inter.className} flex flex-col min-h-screen`}>
-        <Header />
-        <main className="flex-grow">
-          {children}
-        </main>
-        <Footer />
+        <AuthProvider>
+          <Header />
+          <main className="flex-grow">
+            {children}
+          </main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );

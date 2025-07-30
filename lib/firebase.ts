@@ -1,30 +1,22 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp, getApps } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
+import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getFirestore } from "firebase/firestore";
 
-// Your web app's Firebase configuration
+// This code READS from your .env.local file. It does NOT contain the keys.
 const firebaseConfig = {
-  apiKey: "AIzaSyDKFKwJxJ3LSve9-xFIoCS03-8Sh6PHFi0",
-  authDomain: "nail-business-3e59f.firebaseapp.com",
-  projectId: "nail-business-3e59f",
-  storageBucket: "nail-business-3e59f.firebasestorage.app",
-  messagingSenderId: "975010839131",
-  appId: "1:975010839131:web:ba3869f128a0a6b2a05d7e",
-  measurementId: "G-697T7D3S8D"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Initialize Firebase (avoid re-initialization in Next.js)
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
+// Initialize Firebase services and export them
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-// Initialize Analytics only on client side
-export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
-
-export default app; 
+export { app, auth, db };

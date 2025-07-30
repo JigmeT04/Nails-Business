@@ -10,7 +10,7 @@ export default function Button({ label, onClick }: ButtonProps) {
         <button
             onClick={onClick}
             style={{
-                backgroundColor: '#2563eb',
+                backgroundColor: '#bdbdbdff',
                 color: '#fff',
                 padding: '10px 20px',
                 border: 'none',

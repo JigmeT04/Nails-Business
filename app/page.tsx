@@ -2,9 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import ServiceCard from './components/ServiceCard'; // Assumes this file exists
+import ServiceCard from './components/ServiceCard';
+// 1. Import the useAuth hook
+import { useAuth } from "@/lib/AuthContext";
 
 export default function Home() {
+  // 2. Use the hook to get the current user
+  const { user } = useAuth();
+
   // Data for our services section
   const services = [
     {
@@ -39,9 +44,8 @@ export default function Home() {
 
   return (
     <main className="bg-white text-gray-800">
-      {/* 1. Hero Section: Grabs the user's attention */}
+      {/* 1. Hero Section */}
       <section className="relative h-[60vh] flex items-center justify-center text-center text-white">
-        {/* You'll need to add a hero image to your /public folder */}
         <Image
           src="/hero-image.jpg"
           alt="Beautifully manicured nails"
@@ -52,8 +56,10 @@ export default function Home() {
         <div className="relative z-10 p-4">
           <h1 className="text-5xl font-bold mb-4">YVD NAILS</h1>
           <p className="text-xl mb-8">Premium Eyelashes & Nail Artistry</p>
+          {/* 3. This Link is now "smart" */}
           <Link
-            href="/booking"
+            // If user exists, go to /booking. If not, go to /login.
+            href={user ? "/booking" : "/login"}
             className="bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-8 rounded-full text-lg transition-colors"
           >
             Book Now
@@ -61,7 +67,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 2. Services Section: Tells users what you offer */}
+      {/* 2. Services Section */}
       <section id="services" className="py-20 px-4 text-center">
         <h2 className="text-3xl font-bold mb-10">Our Services</h2>
         <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -71,7 +77,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 3. Gallery Section: Shows off your amazing work */}
+      {/* 3. Gallery Section */}
       <section id="gallery" className="py-20 px-4 bg-gray-50 text-center">
         <h2 className="text-3xl font-bold mb-10">Our Work</h2>
         <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">

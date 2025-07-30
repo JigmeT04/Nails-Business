@@ -1,62 +1,101 @@
-"use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+'use client';
 
-export default function SignupPage() {
-  
-  const [form, setForm] = useState({ name: " ", email: "", password: "", encryption_key: "" }); // Added encryption_key state
-  const [message, setMessage] = useState("");
-  const [isError, setIsError] = useState(false); // Added isError state
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { useRouter } from 'next/navigation';
+// Import the Firestore functions we need
+import { getFirestore, doc, setDoc } from 'firebase/firestore'; 
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { app } from '@/lib/firebase';
+import { useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+
+const formSchema = z.object({
+  email: z.string().email({ message: "Please enter a valid email." }),
+  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
+});
+
+export default function SignUpPage() {
+  const [firebaseError, setFirebaseError] = useState('');
   const router = useRouter();
+  const auth = getAuth(app);
+  const db = getFirestore(app); // Get the Firestore instance
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMessage("");
-    setIsError(false); // Reset error state
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    setFirebaseError('');
+    try {
+      // Step 1: Create the user in Firebase Authentication
+      const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+      const user = userCredential.user;
 
-    // Ensure all required fields are present for signup
-    if (!form.name || !form.email || !form.password || !form.encryption_key) {
-        setMessage("Please fill in all fields.");
-        setIsError(true);
-        return;
+      // --- NEW STEP ---
+      // Step 2: Create a user profile document in Firestore
+      // We use the user's UID from Auth as the document ID
+      await setDoc(doc(db, "users", user.uid), {
+        email: user.email, // Save their email
+        createdAt: new Date(), // Add a timestamp
+        // We'll add more fields like name, instagram, etc. later
+      });
+
+      router.push('/'); // Redirect to home on success
+    } catch (error: any) {
+      setFirebaseError(error.message);
     }
-
-    const res = await fetch("/api/signup", { // Corrected API endpoint to /api/signup
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-
-    const data = await res.json();
-
-    if (res.ok) {
-      setMessage("Signup successful! Welcome.");
-      // Redirect to a protected dashboard page after successful signup
-      router.push('/dashboard');
-    } else {
-      setMessage(`Error: ${data.message}`);
-      setIsError(true); // Set error state if response is not ok
-    }
-  };
+  }
 
   return (
-    <div className="p-10 max-w-md mx-auto"> {/* Added max-w-md mx-auto for centering */}
-      <h1 className="text-3xl font-bold mb-6">Sign Up</h1> {/* Changed heading */}
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        {/* Assuming 'name' and 'encryption_key' are also part of your signup form based on route.js */}
-        <input type="text" name="name" value={form.name} onChange={handleChange} placeholder="Name" required className="border p-2 rounded" />
-        <input type="email" name="email" value={form.email} onChange={handleChange} placeholder="Email" required className="border p-2 rounded" />
-        <input type="password" name="password" value={form.password} onChange={handleChange} placeholder="Password" required className="border p-2 rounded" />
-        <input type="password" name="encryption_key" value={form.encryption_key} onChange={handleChange} placeholder="Encryption Key" required className="border p-2 rounded" />
-        
-        {/* Label changed to "Sign Up Now" */}
-        <button type="submit" className="bg-green-600 text-white py-2 rounded hover:bg-green-700">Sign Up Now</button>
-      </form>
-      {message && <p className={`mt-4 ${isError ? 'text-red-500' : 'text-green-500'}`}>{message}</p>} {/* Dynamic message color */}
+    <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-lg shadow-lg">
+      <h1 className="text-3xl font-bold text-center mb-6 text-gray-800">
+        Create an Account
+      </h1>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email Address</FormLabel>
+                <FormControl>
+                  <Input placeholder="you@example.com" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Password</FormLabel>
+                <FormControl>
+                  <Input type="password" placeholder="••••••••" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {firebaseError && (
+             <p className="text-red-500 text-sm text-center">{firebaseError}</p>
+          )}
+
+          <Button type="submit" className="w-full">Sign Up</Button>
+        </form>
+      </Form>
     </div>
   );
 }
