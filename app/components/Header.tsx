@@ -44,6 +44,9 @@ export default function Header() {
           <Link href="/#gelx" className="font-body text-brand-taupe-light hover:text-brand-taupe transition-colors font-medium">
             GELX Extensions
           </Link>
+          <Link href="/#reviews" className="font-body text-brand-taupe-light hover:text-brand-taupe transition-colors font-medium">
+            Reviews
+          </Link>
           <Link href="/#gallery" className="font-body text-brand-taupe-light hover:text-brand-taupe transition-colors font-medium">
             Portfolio
           </Link>
@@ -88,6 +91,7 @@ export default function Header() {
         <div className="md:hidden mt-4 flex flex-col items-center space-y-4">
           <Link href="/#services" onClick={closeMenu} className="text-gray-600 hover:text-pink-500">Design Tiers</Link>
           <Link href="/#gelx" onClick={closeMenu} className="text-gray-600 hover:text-pink-500">GELX Extensions</Link>
+          <Link href="/#reviews" onClick={closeMenu} className="text-gray-600 hover:text-pink-500">Reviews</Link>
           <Link href="/#gallery" onClick={closeMenu} className="text-gray-600 hover:text-pink-500">Portfolio</Link>
           <hr className="w-full border-t border-gray-200" />
           {user ? (

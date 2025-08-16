@@ -5,16 +5,25 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { app } from '@/lib/firebase';
+import { useAuth } from '@/lib/AuthContext';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Toaster, toast } from 'sonner';
 import LoadingSpinner, { LoadingPage } from '@/app/components/LoadingSpinner';
 import ErrorDisplay from '@/app/components/ErrorDisplay';
+import LoyaltyCard from '@/app/components/LoyaltyCard';
+import StarRating from '@/app/components/StarRating';
+import { LoyaltyService, LoyaltyData } from '@/lib/loyaltyService';
+import { ReviewService, Review } from '@/lib/reviewService';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { format } from 'date-fns';
+import Link from 'next/link';
 
 interface Appointment {
   id: string;
@@ -27,165 +36,568 @@ interface Appointment {
 const profileFormSchema = z.object({
   firstName: z.string().min(1, { message: "First name is required." }),
   lastName: z.string().min(1, { message: "Last name is required." }),
-  instagram: z.string().optional(),
-  phoneNumber: z.string().optional(),
+  phone: z.string().optional(),
+  instagramHandle: z.string().optional(),
   dateOfBirth: z.string().optional(),
 });
 
+const termsText = `
+TERMS OF SERVICE - YVD NAILS
+
+1. APPOINTMENT POLICIES
+- 24-hour advance notice required for cancellations
+- Late arrivals may result in shortened service time
+- No-shows will be charged 50% of service cost
+
+2. PAYMENT TERMS  
+- Payment due at time of service
+- We accept cash, card, and digital payments
+- Gratuity is appreciated but not mandatory
+
+3. HEALTH & SAFETY
+- Please inform us of any allergies or skin sensitivities
+- We maintain strict sanitation standards
+- Services may be refused if health concerns arise
+
+4. LIABILITY
+- Client assumes responsibility for allergic reactions
+- We are not liable for pre-existing nail conditions
+- Photo consent granted for portfolio use unless declined
+
+5. LOYALTY PROGRAM
+- Points earned on completed appointments only
+- Points expire after 12 months of inactivity
+- Discounts cannot be combined with other offers
+
+By signing below, I acknowledge I have read and agree to these terms.
+`;
+
 export default function ProfilePage() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, userData, loading: authLoading, refreshUserData } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loyaltyData, setLoyaltyData] = useState<LoyaltyData | null>(null);
+  const [userReviews, setUserReviews] = useState<Review[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'profile' | 'waitlist' | 'terms' | 'appointments' | 'loyalty' | 'reviews'>('profile');
+  const [showTerms, setShowTerms] = useState(false);
+  const [digitalSignature, setDigitalSignature] = useState('');
   const router = useRouter();
-  const auth = getAuth(app);
   const db = getFirestore(app);
 
   const form = useForm<z.infer<typeof profileFormSchema>>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      firstName: "",
-      lastName: "",
-      instagram: "",
-      phoneNumber: "",
-      dateOfBirth: "",
+      firstName: '',
+      lastName: '',
+      phone: '',
+      instagramHandle: '',
+      dateOfBirth: '',
     },
   });
 
+  // Redirect to login if not authenticated
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      try {
-        if (currentUser) {
-          setUser(currentUser);
-          
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          const userDoc = await getDoc(userDocRef);
-          if (userDoc.exists()) {
-            form.reset(userDoc.data());
-          }
+    if (!authLoading && !user) {
+      router.push('/login');
+    }
+  }, [user, authLoading, router]);
 
-          const appointmentsQuery = query(
-            collection(db, 'appointments'),
-            where('userId', '==', currentUser.uid)
-          );
-          const querySnapshot = await getDocs(appointmentsQuery);
-          let userAppointments = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-          } as Appointment));
+  // Load user data when user is available
+  useEffect(() => {
+    if (user && userData) {
+      form.reset({
+        firstName: userData.displayName?.split(' ')[0] || '',
+        lastName: userData.displayName?.split(' ').slice(1).join(' ') || '',
+        phone: '',
+        instagramHandle: '',
+        dateOfBirth: '',
+      });
 
-          userAppointments.sort((a, b) => b.createdAt.seconds - a.createdAt.seconds);
-          setAppointments(userAppointments);
+      // Load additional data from Firestore
+      loadUserProfile();
+      loadAppointments();
+      loadLoyaltyData();
+      loadUserReviews();
+    }
+  }, [user, userData, form]);
 
-        } else {
-          router.push('/login');
-        }
-      } catch (error) {
-        console.error("Error loading profile: ", error);
-        setError("Failed to load profile data");
-      } finally {
-        setLoading(false);
+  const loadUserProfile = async () => {
+    if (!user) return;
+    
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        form.reset({
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
+          phone: data.phone || '',
+          instagramHandle: data.instagramHandle || '',
+          dateOfBirth: data.dateOfBirth || '',
+        });
       }
-    });
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    }
+  };
 
-    return () => unsubscribe();
-  }, [auth, router, db, form]);
+  const loadAppointments = async () => {
+    if (!user) return;
+    
+    try {
+      const appointmentsQuery = query(
+        collection(db, 'appointments'), 
+        where('userId', '==', user.uid)
+      );
+      const appointmentsSnapshot = await getDocs(appointmentsQuery);
+      const appointmentsList = appointmentsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Appointment[];
+      
+      setAppointments(appointmentsList);
+    } catch (error) {
+      console.error('Error loading appointments:', error);
+    }
+  };
 
-  async function onSubmit(values: z.infer<typeof profileFormSchema>) {
+  const loadLoyaltyData = async () => {
+    if (!user) return;
+    
+    try {
+      const data = await LoyaltyService.getUserLoyaltyData(user.uid);
+      setLoyaltyData(data);
+    } catch (error) {
+      console.error('Error loading loyalty data:', error);
+    }
+  };
+
+  const loadUserReviews = async () => {
+    if (!user) return;
+    
+    try {
+      const reviews = await ReviewService.getUserReviews(user.uid);
+      setUserReviews(reviews);
+    } catch (error) {
+      console.error('Error loading reviews:', error);
+    }
+  };
+
+  const onSubmit = async (values: z.infer<typeof profileFormSchema>) => {
     if (!user) return;
     
     setIsSubmitting(true);
     try {
-      const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(userDocRef, values, { merge: true });
-      toast.success("Profile Updated!", {
-        description: "Your profile information has been saved successfully."
+      await updateDoc(doc(db, 'users', user.uid), {
+        firstName: values.firstName,
+        lastName: values.lastName,
+        phone: values.phone,
+        instagramHandle: values.instagramHandle,
+        dateOfBirth: values.dateOfBirth,
+        updatedAt: new Date(),
       });
+
+      await refreshUserData();
+      toast.success('Profile updated successfully!');
     } catch (error) {
-      console.error("Error updating profile: ", error);
-      toast.error("Failed to update profile", {
-        description: "There was an error saving your profile. Please try again."
-      });
+      console.error('Error updating profile:', error);
+      toast.error('Failed to update profile. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
-  }
+  };
 
-  if (loading) {
-    return <LoadingPage text="Loading your profile..." />;
-  }
+  const handleSignTerms = async () => {
+    if (!user || !digitalSignature.trim()) {
+      toast.error('Please enter your digital signature');
+      return;
+    }
 
-  if (error) {
-    return (
-      <ErrorDisplay
-        title="Failed to Load Profile"
-        message={error}
-        onRetry={() => window.location.reload()}
-        showRetry={true}
-      />
-    );
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        hasSignedTerms: true,
+        termsSignedAt: new Date(),
+        digitalSignature: digitalSignature.trim(),
+      });
+
+      await refreshUserData();
+      toast.success('Terms of Service signed successfully!');
+      setDigitalSignature('');
+      setShowTerms(false);
+    } catch (error) {
+      console.error('Error signing terms:', error);
+      toast.error('Failed to sign terms. Please try again.');
+    }
+  };
+
+  if (authLoading) {
+    return <LoadingPage />;
   }
 
   if (!user) {
-    return (
-      <ErrorDisplay
-        title="Authentication Required"
-        message="Please log in to view your profile."
-        onRetry={() => router.push('/login')}
-        showRetry={true}
-      />
-    );
+    return null; // Will redirect to login
   }
 
+  if (error) {
+    return <ErrorDisplay message={error} />;
+  }
+
+  const getWaitlistStatusBadge = () => {
+    if (!userData) return null;
+    
+    if (userData.isAdmin) {
+      return <Badge variant="default" className="bg-purple-500 text-white">Admin ⭐</Badge>;
+    } else if (userData.isApproved) {
+      return <Badge variant="default" className="bg-green-500 text-white">Member ✓</Badge>;
+    } else {
+      return <Badge variant="secondary" className="bg-yellow-500 text-white">On Waitlist</Badge>;
+    }
+  };  const getTermsStatusBadge = () => {
+    if (!userData) return null;
+
+    if (userData.hasSignedTerms) {
+      return <Badge variant="default" className="bg-green-500 text-white">Terms Signed ✓</Badge>;
+    } else {
+      return <Badge variant="outline" className="border-red-500 text-red-500">Terms Not Signed</Badge>;
+    }
+  };
+
   return (
-    <>
-      <div className="max-w-4xl mx-auto my-12 p-8 bg-white rounded-lg shadow-lg">
-        <h1 className="text-3xl font-bold mb-8">Your Profile</h1>
-        
-        <div className="mb-12">
-            <h2 className="text-2xl font-semibold mb-4">Your Information</h2>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <FormField control={form.control} name="firstName" render={({ field }) => ( <FormItem><FormLabel>First Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                  <FormField control={form.control} name="lastName" render={({ field }) => ( <FormItem><FormLabel>Last Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                </div>
-                <FormField control={form.control} name="instagram" render={({ field }) => ( <FormItem><FormLabel>Instagram</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                <FormField control={form.control} name="phoneNumber" render={({ field }) => ( <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                <FormField control={form.control} name="dateOfBirth" render={({ field }) => ( <FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                {/* --- THIS BUTTON IS NOW STYLED --- */}
-                <Button type="submit" className="w-full md:w-auto" style={{ backgroundColor: '#FAD1E8', color: '#333' }}>Save Changes</Button>
-              </form>
-            </Form>
-        </div>
-        
-        <div>
-            <h2 className="text-2xl font-semibold mb-4">My Appointments</h2>
-            {appointments.length === 0 ? (
-                <p className="text-gray-500">You have not requested any appointments yet.</p>
-            ) : (
-                <div className="space-y-4">
-                    {appointments.map(appt => (
-                        <div key={appt.id} className="border rounded-lg p-4 flex justify-between items-center">
-                            <div>
-                                <p className="font-semibold">{appt.service}</p>
-                                <p className="text-sm text-gray-600">Date: {new Date(appt.date).toLocaleDateString()}</p>
-                            </div>
-                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                              appt.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              appt.status === 'confirmed' ? 'bg-green-100 text-green-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              {appt.status}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-      </div>
+    <div className="container mx-auto px-4 py-8">
       <Toaster />
-    </>
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800">My Profile</h1>
+            <p className="text-gray-600">Manage your account and preferences</p>
+          </div>
+          <div className="flex gap-2">
+            {getWaitlistStatusBadge()}
+            {getTermsStatusBadge()}
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex flex-wrap gap-2 mb-6 border-b">
+          {[
+            { id: 'profile', label: 'Profile' },
+            { id: 'waitlist', label: 'Waitlist Status' },
+            { id: 'terms', label: 'Terms of Service' },
+            { id: 'appointments', label: 'Appointments' },
+            { id: 'loyalty', label: 'Loyalty Program' },
+            { id: 'reviews', label: 'My Reviews' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`px-4 py-2 rounded-t-lg font-medium transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-rose-100 text-rose-700 border-b-2 border-rose-500'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <Card className="p-6">
+          {activeTab === 'profile' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Profile Information</h2>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="firstName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>First Name</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="lastName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Last Name</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  
+                  <FormField
+                    control={form.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone Number</FormLabel>
+                        <FormControl>
+                          <Input {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={form.control}
+                    name="instagramHandle"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Instagram Handle</FormLabel>
+                        <FormControl>
+                          <Input placeholder="@yourusername" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={form.control}
+                    name="dateOfBirth"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date of Birth</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? 'Updating...' : 'Update Profile'}
+                  </Button>
+                </form>
+              </Form>
+            </div>
+          )}
+
+          {activeTab === 'waitlist' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Waitlist Status</h2>
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">Status:</span>
+                  {getWaitlistStatusBadge()}
+                </div>
+                
+                {userData?.isAdmin ? (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <h3 className="font-medium text-purple-800 mb-2">⭐ Admin Account</h3>
+                    <p className="text-purple-700 mb-2">
+                      You have administrator privileges and can manage the nail salon system.
+                    </p>
+                    <div className="flex gap-2 mt-3">
+                      <Link href="/admin">
+                        <Button size="sm" className="bg-purple-600 hover:bg-purple-700">
+                          Admin Dashboard
+                        </Button>
+                      </Link>
+                      <Link href="/booking">
+                        <Button size="sm" variant="outline">
+                          Book Appointment
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                ) : userData?.isApproved ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h3 className="font-medium text-green-800 mb-2">✓ Active Member</h3>
+                    <p className="text-green-700">
+                      Your account has been approved by our admin team. You can now book appointments.
+                    </p>
+                    {userData.approvedAt && (
+                      <p className="text-sm text-green-600 mt-2">
+                        Approved on: {format(userData.approvedAt, 'MMMM d, yyyy')}
+                      </p>
+                    )}
+                    <Link href="/booking" className="inline-block mt-2">
+                      <Button size="sm">Book an Appointment</Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <h3 className="font-medium text-yellow-800 mb-2">⏳ On Waitlist</h3>
+                    <p className="text-yellow-700 mb-2">
+                      Your account is currently on our waitlist for approval.
+                    </p>
+                    <p className="text-sm text-yellow-600">
+                      You will receive an email notification once you're approved and can start booking appointments.
+                    </p>
+                  </div>
+                )}
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h3 className="font-medium text-blue-800 mb-2">Account Access</h3>
+                  <p className="text-blue-700">
+                    {userData?.isAdmin 
+                      ? "You have full administrative access to the system."
+                      : userData?.isApproved 
+                        ? "You have full access to our booking system."
+                        : "Booking access will be enabled once you're approved from the waitlist."
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'terms' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Terms of Service</h2>
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">Status:</span>
+                  {getTermsStatusBadge()}
+                </div>
+
+                {userData?.hasSignedTerms ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h3 className="font-medium text-green-800 mb-2">✓ Terms Signed</h3>
+                    <p className="text-green-700 mb-2">
+                      You have digitally signed our Terms of Service. This signature will be used for all your future bookings.
+                    </p>
+                    {userData.termsSignedAt && (
+                      <p className="text-sm text-green-600">
+                        Signed on: {format(userData.termsSignedAt, 'MMMM d, yyyy')}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <h3 className="font-medium text-red-800 mb-2">⚠️ Terms Not Signed</h3>
+                    <p className="text-red-700 mb-4">
+                      You need to sign our Terms of Service to complete bookings. Sign once here and it will apply to all your future appointments.
+                    </p>
+                    
+                    <Link href="/terms">
+                      <Button 
+                        variant="outline"
+                        className="border-red-500 text-red-700 hover:bg-red-50"
+                      >
+                        Review and Sign Terms
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+
+                {showTerms && (
+                  <div className="border rounded-lg p-4 space-y-4">
+                    <div className="max-h-64 overflow-y-auto bg-gray-50 p-4 rounded border">
+                      <pre className="whitespace-pre-wrap text-sm">{termsText}</pre>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium">
+                        Digital Signature (Type your full name)
+                      </label>
+                      <Input
+                        value={digitalSignature}
+                        onChange={(e) => setDigitalSignature(e.target.value)}
+                        placeholder="Enter your full name as digital signature"
+                      />
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <Button onClick={handleSignTerms} disabled={!digitalSignature.trim()}>
+                        Sign Terms of Service
+                      </Button>
+                      <Button variant="outline" onClick={() => setShowTerms(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'appointments' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">My Appointments</h2>
+              {appointments.length === 0 ? (
+                <p className="text-gray-600">No appointments found.</p>
+              ) : (
+                <div className="space-y-4">
+                  {appointments.map(appointment => (
+                    <div key={appointment.id} className="border rounded-lg p-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-medium">{appointment.service}</h3>
+                          <p className="text-gray-600">{appointment.date}</p>
+                        </div>
+                        <Badge variant={
+                          appointment.status === 'confirmed' ? 'default' :
+                          appointment.status === 'pending' ? 'secondary' : 'destructive'
+                        }>
+                          {appointment.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'loyalty' && loyaltyData && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Loyalty Program</h2>
+              <LoyaltyCard 
+                points={loyaltyData.points}
+                nextReward={100}
+              />
+            </div>
+          )}
+
+          {activeTab === 'reviews' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">My Reviews</h2>
+              {userReviews.length === 0 ? (
+                <p className="text-gray-600">You haven't written any reviews yet.</p>
+              ) : (
+                <div className="space-y-4">
+                  {userReviews.map(review => (
+                    <div key={review.id} className="border rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className="font-medium">{review.service}</h3>
+                          <StarRating rating={review.rating} readonly />
+                        </div>
+                        <span className="text-sm text-gray-500">
+                          {format(review.createdAt.toDate(), 'MMM d, yyyy')}
+                        </span>
+                      </div>
+                      <p className="text-gray-700">{review.comment}</p>
+                      {review.technician && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          Technician: {review.technician}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
   );
 }
